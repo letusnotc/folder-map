@@ -1,0 +1,12 @@
+{
+  "name": "folder-map",
+  "description": "folder-map, a Claude Code mod: a live folder map of the files Claude edits.",
+  "owner": { "name": "Arnav Pandey" },
+  "plugins": [
+    {
+      "name": "folder-map",
+      "source": "./",
+      "description": "Side panel showing the folder tree, every file Claude edited numbered in order, and a trail to the latest file."
+    }
+  ]
+}
