@@ -1,6 +1,6 @@
 {
   "name": "folder-map",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Side panel that opens when Claude edits files: the whole folder tree, every edited file numbered in order, and a highlighted trail from the project root to the file being edited. /folder-map toggles it.",
   "author": { "name": "Arnav Pandey" },
   "types": "./types/index.d.ts"

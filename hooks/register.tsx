@@ -76,6 +76,10 @@ const chainDirs = (root: string, dir: string): string[] => {
 // ---------------------------------------------------------------------------
 // Scanning.
 
+// Folders first, then by name.
+const byKindThenName = (a: Entry, b: Entry): number =>
+  (a.kind === 'dir' ? 0 : 1) - (b.kind === 'dir' ? 0 : 1) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+
 async function listDir($: EngineInterface, abs: string): Promise<Listing> {
   const raw = await $.fs.list(abs)
   const entries: Entry[] = raw
@@ -83,11 +87,7 @@ async function listDir($: EngineInterface, abs: string): Promise<Listing> {
       const kind = r.kind === 'dir' ? 'dir' : r.kind === 'file' ? 'file' : 'other'
       return kind === 'dir' && SKIP.has(r.name) ? { name: r.name, kind, isSkipped: true } : { name: r.name, kind }
     })
-    .sort(
-      (a, b) =>
-        (a.kind === 'dir' ? 0 : 1) - (b.kind === 'dir' ? 0 : 1) ||
-        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
-    )
+    .sort(byKindThenName)
   return { entries: entries.slice(0, MAX_PER_DIR), more: Math.max(0, entries.length - MAX_PER_DIR) }
 }
 
@@ -182,9 +182,17 @@ async function rescanAll($: EngineInterface): Promise<void> {
   await update($, dirs, () => merged)
 }
 
+// Closing the map quiets the folder of the latest edit until Claude edits elsewhere.
+async function quietLastFolder($: EngineInterface): Promise<void> {
+  const file = await read($, last)
+  if (file) await update($, view, prev => ({ ...prev, quietFolder: parentOf(file) }))
+}
+
 async function togglePane($: EngineInterface): Promise<boolean> {
   const isOpen = (await $.ui.panes()).some(p => p.id === PANE)
   if (isOpen) {
+    // A close by command is the person's too; the `ui.close` hook sees only the plugin.
+    await quietLastFolder($)
     await $.ui.close({ id: PANE })
     return false
   }
@@ -233,13 +241,38 @@ function flatten(root: string, listings: Record<string, Listing>, marks: EditMar
   }
   const trail = lastFile && isUnder(lastFile, root) ? [...chainDirs(root, parentOf(lastFile)), lastFile].map(keyOf) : []
 
+  // A listing past its cap may have left out an edited file, or a folder on
+  // the way to one: put those back so every edit keeps its row.
+  const withTracked = (dir: string, l: Listing): Listing => {
+    if (!l.more) return l
+    const have = new Set(l.entries.map(en => keyOf(join(dir, en.name))))
+    const extra: Entry[] = []
+    for (const m of marks) {
+      if (keyOf(m.path) === keyOf(dir) || !isUnder(m.path, dir)) continue
+      const segs = segmentsBelow(dir, m.path)
+      const name = segs[0]
+      if (!name) continue
+      const k = keyOf(join(dir, name))
+      if (have.has(k)) continue
+      have.add(k)
+      extra.push({ name, kind: segs.length === 1 ? 'file' : 'dir' })
+    }
+    if (!extra.length) return l
+    return { entries: [...l.entries, ...extra].sort(byKindThenName), more: Math.max(0, l.more - extra.length) }
+  }
+
   const build = (focus: boolean): Row[] => {
     const rows: Row[] = []
     const walk = (dir: string, depth: number, guides: boolean[], ancestors: string[]) => {
-      const l = listings[keyOf(dir)]
-      if (!l) return
-      l.entries.forEach((en, i) => {
-        const isLastSibling = i === l.entries.length - 1 && !l.more
+      const listed = listings[keyOf(dir)]
+      if (!listed) return
+      const l = withTracked(dir, listed)
+      // Edited branches: folders with no edits beneath them are left out.
+      const entries = focus
+        ? l.entries.filter(en => en.kind !== 'dir' || (touched.get(keyOf(join(dir, en.name))) ?? 0) > 0)
+        : l.entries
+      entries.forEach((en, i) => {
+        const isLastSibling = i === entries.length - 1 && !l.more
         const abs = join(dir, en.name)
         const k = keyOf(abs)
         const below = touched.get(k) ?? 0
@@ -644,10 +677,7 @@ export const register: Register = on => {
 
   // The person closed it: stay quiet for edits in that folder.
   on('ui.close', { id: PANE }, async ($, e, next) => {
-    if (e.origin.kind === 'person') {
-      const file = await read($, last)
-      if (file) await update($, view, prev => ({ ...prev, quietFolder: parentOf(file) }))
-    }
+    if (e.origin.kind === 'person') await quietLastFolder($)
     return next(e)
   })
 
