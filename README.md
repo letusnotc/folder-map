@@ -9,7 +9,9 @@ the folder tree, every edited file numbered in order, and a trail to the file be
 
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-2.1.287%2B-8f8cf4?style=flat-square)](https://claude.com/claude-code)
 [![Mod](https://img.shields.io/badge/type-mod-5fbf8f?style=flat-square)](https://github.com/topics/claude-code-mod)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)<br>
+[![reach](https://raw.githubusercontent.com/karanb192/awesome-claude-code-mods/main/badges/letusnotc--folder-map--folder-map-reach.svg)](https://mods.aidojo.si/mods/letusnotc--folder-map--folder-map/)
+[![validates](https://raw.githubusercontent.com/karanb192/awesome-claude-code-mods/main/badges/letusnotc--folder-map--folder-map-validates.svg)](https://mods.aidojo.si/mods/letusnotc--folder-map--folder-map/)
 
 <img src="assets/desktop-pane.svg" alt="The folder-map pane in the Claude desktop app: stat cards, the last-edit breadcrumb, and the project tree with edited files numbered 1 to 4" width="480">
 
