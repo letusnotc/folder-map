@@ -1,25 +1,27 @@
 import type { On } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 
-// A small fake project the plugin's `$.fs` calls are answered from.
-const ROOT = 'C:/proj'
+// A small fake project the plugin's `$.fs` calls are answered from. Its root
+// is a POSIX path so the same fixture runs on every platform: on Windows the
+// engine hands `fs.*` hooks the native form (`C:\proj`), which `canon` maps back.
+const ROOT = '/proj'
 const FS: Record<string, { name: string; kind: 'file' | 'dir' }[]> = {
-  'C:/proj': [
+  '/proj': [
     { name: 'src', kind: 'dir' },
     { name: 'node_modules', kind: 'dir' },
     { name: 'package.json', kind: 'file' },
     { name: 'README.md', kind: 'file' },
   ],
-  'C:/proj/src': [
+  '/proj/src': [
     { name: 'components', kind: 'dir' },
     { name: 'index.ts', kind: 'file' },
   ],
-  'C:/proj/src/components': [{ name: 'Button.tsx', kind: 'file' }],
+  '/proj/src/components': [{ name: 'Button.tsx', kind: 'file' }],
 }
 
-// The engine hands `fs.*` hooks native separators (`C:\proj`).
-const slash = (p: string): string => p.replace(/\\/g, '/')
-const list = (p: string) => (FS[slash(p)] ?? []).map(en => ({ ...en, size: 0, mtimeMs: 0, isLink: false }))
+// A path as the fixture keys it: `/`-separated, any drive letter dropped.
+const canon = (p: string): string => p.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
+const list = (p: string) => (FS[canon(p)] ?? []).map(en => ({ ...en, size: 0, mtimeMs: 0, isLink: false }))
 
 // A crab element in the drawn SVG (the class names also sit in its CSS).
 const PATROL = /class=\\*"patrol/
@@ -39,7 +41,7 @@ test('an edit opens the map with the tree and a numbered, highlighted file', asy
   let panes: { id: string; title: string; isShown: boolean; isFocused: boolean; isPlaced: true }[] = []
   on('session.cwd', () => ({ value: ROOT }))
   on('fs.list', ($, e) => ({ value: list(e.path) }))
-  on('fs.exists', ($, e) => ({ value: slash(e.path) in FS || e.path.endsWith('.tsx') }))
+  on('fs.exists', ($, e) => ({ value: canon(e.path) in FS || e.path.endsWith('.tsx') }))
   on('ui.panes', () => ({ value: panes }))
   on('ui.open', ($, e) => {
     opened.push(e.id)
@@ -48,9 +50,10 @@ test('an edit opens the map with the tree and a numbered, highlighted file', asy
   })
   on('tool.call', () => ({ result: { ok: true } }))
 
-  await $.tool.call({ tool: 'Edit', file_path: 'C:\\proj\\src\\components\\Button.tsx', old_string: 'a', new_string: 'b' })
-  await $.tool.call({ tool: 'Write', file_path: 'C:/proj/src/index.ts', content: 'x' })
-  await $.tool.call({ tool: 'Edit', file_path: 'C:/proj/src/index.ts', old_string: 'x', new_string: 'y' })
+  // Backslashes in a tool's path are read as separators.
+  await $.tool.call({ tool: 'Edit', file_path: '\\proj\\src\\components\\Button.tsx', old_string: 'a', new_string: 'b' })
+  await $.tool.call({ tool: 'Write', file_path: '/proj/src/index.ts', content: 'x' })
+  await $.tool.call({ tool: 'Edit', file_path: '/proj/src/index.ts', old_string: 'x', new_string: 'y' })
 
   expect(opened).toEqual(['folder-map'])
 
@@ -84,8 +87,8 @@ function paneHost(on: On, fs: typeof FS) {
   const opened: string[] = []
   let panes: { id: string; title: string; isShown: boolean; isFocused: boolean; isPlaced: true }[] = []
   on('session.cwd', () => ({ value: ROOT }))
-  on('fs.list', ($, e) => ({ value: (fs[slash(e.path)] ?? []).map(en => ({ ...en, size: 0, mtimeMs: 0, isLink: false })) }))
-  on('fs.exists', ($, e) => ({ value: slash(e.path) in fs }))
+  on('fs.list', ($, e) => ({ value: (fs[canon(e.path)] ?? []).map(en => ({ ...en, size: 0, mtimeMs: 0, isLink: false })) }))
+  on('fs.exists', ($, e) => ({ value: canon(e.path) in fs }))
   on('ui.panes', () => ({ value: panes }))
   on('ui.open', ($, e) => {
     opened.push(e.id)
@@ -104,24 +107,24 @@ const edit = (file_path: string) => ({ tool: 'Edit' as const, file_path, old_str
 
 test('closing the map with /folder-map keeps that folder quiet until an edit elsewhere', async ($, on) => {
   const host = paneHost(on, FS)
-  await $.tool.call(edit('C:/proj/src/index.ts'))
+  await $.tool.call(edit('/proj/src/index.ts'))
   expect(host.isOpen()).toBe(true)
 
   await $.command.run({ command: 'folder-map', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })
   expect(host.isOpen()).toBe(false)
 
   // Same folder: stays closed.
-  await $.tool.call(edit('C:/proj/src/index.ts'))
+  await $.tool.call(edit('/proj/src/index.ts'))
   expect(host.isOpen()).toBe(false)
 
   // Another folder: opens again.
-  await $.tool.call(edit('C:/proj/src/components/Button.tsx'))
+  await $.tool.call(edit('/proj/src/components/Button.tsx'))
   expect(host.isOpen()).toBe(true)
 })
 
 test('edited branches leaves out folders with no edits beneath them', async ($, on) => {
   paneHost(on, FS)
-  await $.tool.call(edit('C:/proj/src/index.ts'))
+  await $.tool.call(edit('/proj/src/index.ts'))
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const pane = await $.ui.mount({ plugin: 'folder-map', surface, component: 'Pane', requestId: 'folder-map', props: PANE_PROPS })
@@ -143,9 +146,9 @@ test('edited branches leaves out folders with no edits beneath them', async ($, 
 
 test('an edited file past the listing cap keeps its numbered row', async ($, on) => {
   const many = Array.from({ length: 250 }, (_, i) => ({ name: `f${String(i).padStart(3, '0')}.ts`, kind: 'file' as const }))
-  const fs = { 'C:/proj': [{ name: 'big', kind: 'dir' as const }], 'C:/proj/big': [...many, { name: 'z-last.ts', kind: 'file' as const }] }
+  const fs = { '/proj': [{ name: 'big', kind: 'dir' as const }], '/proj/big': [...many, { name: 'z-last.ts', kind: 'file' as const }] }
   paneHost(on, fs)
-  await $.tool.call(edit('C:/proj/big/z-last.ts'))
+  await $.tool.call(edit('/proj/big/z-last.ts'))
 
   const term = await $.ui.mount({ plugin: 'folder-map', surface: 'terminal', component: 'Pane', requestId: 'folder-map', props: PANE_PROPS })
   expect(await term.find({ type: 'Text', text: /z-last\.ts ①/ })).toBeDefined()
@@ -167,7 +170,7 @@ test('failed edits are not tracked and do not open the map', async ($, on) => {
   })
   on('tool.call', () => ({ isError: true as const, result: 'boom', text: 'boom' }))
 
-  await $.tool.call({ tool: 'Edit', file_path: 'C:/proj/src/index.ts', old_string: 'x', new_string: 'y' })
+  await $.tool.call({ tool: 'Edit', file_path: '/proj/src/index.ts', old_string: 'x', new_string: 'y' })
   expect(opened).toEqual([])
 
   // Nothing tracked: a resting crab and the empty-state line.
